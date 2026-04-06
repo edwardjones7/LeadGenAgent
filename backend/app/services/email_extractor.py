@@ -9,7 +9,7 @@ EXCLUDE_DOMAINS = {
     "wordpress.com", "squarespace.com", "godaddy.com", "domain.com",
     "email.com", "youremail.com", "placeholder.com",
 }
-CONTACT_PATHS = ["/contact", "/contact-us", "/contact.html", "/about", "/about-us"]
+CONTACT_PATHS = ["/contact", "/contact-us"]
 PRIORITY_PREFIXES = ["info", "contact", "hello", "support", "admin"]
 
 HEADERS = {
@@ -20,25 +20,36 @@ HEADERS = {
     )
 }
 
+HTML_SIZE_LIMIT = 50 * 1024  # 50 KB
+
 
 async def extract_email(url: str, homepage_html: str, client: httpx.AsyncClient) -> str | None:
     """Extract the best contact email from a business website."""
     base_domain = urlparse(url).netloc.lower().removeprefix("www.")
 
-    # 1. Try homepage HTML first (already fetched during evaluation)
+    # 1. Try homepage HTML first (already fetched and capped during evaluation)
     emails = _extract_from_html(homepage_html, base_domain)
     if emails:
         return _pick_best(emails, base_domain)
 
-    # 2. Try contact/about pages
+    # 2. Try contact/about pages — stream with 50KB cap
     for path in CONTACT_PATHS:
         contact_url = urljoin(url, path)
         try:
-            resp = await client.get(contact_url, timeout=8.0, follow_redirects=True)
-            if resp.status_code == 200:
-                emails = _extract_from_html(resp.text, base_domain)
-                if emails:
-                    return _pick_best(emails, base_domain)
+            async with client.stream("GET", contact_url, timeout=8.0, follow_redirects=True) as resp:
+                if resp.status_code != 200:
+                    continue
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in resp.aiter_bytes(4096):
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size >= HTML_SIZE_LIMIT:
+                        break
+                contact_html = b"".join(chunks).decode("utf-8", errors="replace")
+            emails = _extract_from_html(contact_html, base_domain)
+            if emails:
+                return _pick_best(emails, base_domain)
         except httpx.RequestError:
             continue
 
@@ -46,7 +57,8 @@ async def extract_email(url: str, homepage_html: str, client: httpx.AsyncClient)
 
 
 def _extract_from_html(html: str, base_domain: str) -> list[str]:
-    soup = BeautifulSoup(html, "lxml")
+    # Use stdlib html.parser — lower CPU/memory than lxml on small capped documents
+    soup = BeautifulSoup(html, "html.parser")
 
     emails: set[str] = set()
 

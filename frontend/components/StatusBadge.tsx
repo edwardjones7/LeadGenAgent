@@ -5,20 +5,17 @@ interface Props {
   status: LeadStatus;
 }
 
-const styles: Record<LeadStatus, string> = {
-  New: "bg-[#a200ff]/20 text-[#c060ff] border-[#a200ff]/40",
-  Contacted: "bg-blue-500/20 text-blue-300 border-blue-500/40",
-  Closed: "bg-zinc-700/40 text-zinc-400 border-zinc-600/40",
+const config: Record<LeadStatus, { dot: string; pill: string }> = {
+  New:       { dot: "bg-[#a200ff]", pill: "bg-[#a200ff]/10 text-[#c878ff] border-[#a200ff]/30" },
+  Contacted: { dot: "bg-blue-400",  pill: "bg-blue-500/10 text-blue-300 border-blue-500/30" },
+  Closed:    { dot: "bg-zinc-600",  pill: "bg-zinc-800/60 text-zinc-500 border-zinc-700/50" },
 };
 
 export function StatusBadge({ status }: Props) {
+  const { dot, pill } = config[status] ?? config.New;
   return (
-    <span
-      className={clsx(
-        "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border",
-        styles[status]
-      )}
-    >
+    <span className={clsx("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border", pill)}>
+      <span className={clsx("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
       {status}
     </span>
   );

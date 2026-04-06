@@ -26,7 +26,7 @@ export function useLeads() {
     fetchLeads();
   }, [fetchLeads]);
 
-  const updateLead = useCallback(async (id: string, data: { status?: string; email?: string }) => {
+  const updateLead = useCallback(async (id: string, data: { status?: string; email?: string; outreach_status?: string }) => {
     const updated = await api.updateLead(id, data);
     setLeads((prev) => prev.map((l) => (l.id === id ? updated : l)));
     return updated;

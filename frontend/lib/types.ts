@@ -1,5 +1,48 @@
 export type LeadStatus = "New" | "Contacted" | "Closed";
 
+export type OutreachStatus =
+  | "idle"
+  | "analyzing"
+  | "queued"
+  | "emailed_1"
+  | "emailed_2"
+  | "emailed_3"
+  | "bounced"
+  | "opted_out";
+
+export interface AiAnalysis {
+  summary: string;
+  problems: { category: string; description: string }[];
+  severity: "low" | "medium" | "high";
+  personalization_hooks: string[];
+}
+
+export interface EmailRecord {
+  id: string;
+  lead_id: string;
+  sequence_step: number;
+  subject: string;
+  body: string;
+  sent_at: string | null;
+  resend_id: string | null;
+  status: "pending" | "sent" | "failed" | "opened";
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface WebsiteSpec {
+  business_name: string;
+  tagline: string;
+  hero_headline: string;
+  hero_subheadline: string;
+  sections: { name: string; headline: string; body_copy: string; cta_text: string | null }[];
+  color_palette: { primary: string; secondary: string; accent: string };
+  design_direction: string;
+  seo_title: string;
+  meta_description: string;
+  suggested_domain: string;
+}
+
 export interface Lead {
   id: string;
   business_name: string;
@@ -13,6 +56,10 @@ export interface Lead {
   status: LeadStatus;
   category: string | null;
   source: string | null;
+  ai_analysis: AiAnalysis | null;
+  outreach_status: OutreachStatus;
+  last_emailed_at: string | null;
+  follow_up_count: number;
   created_at: string | null;
   updated_at: string | null;
 }

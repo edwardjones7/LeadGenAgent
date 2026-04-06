@@ -48,23 +48,28 @@ LeadGen/
 Score 1–10, **higher = worse website = better lead for Elenos**.
 Penalties for: no HTTPS, timeout/unreachable, slow load, no viewport meta, no meta description, no title, outdated copyright year, old platform (Jimdo, Webs.com, Yola, etc.)
 
-## Current Sources
+## Sources
 | Source | Method | Notes |
 |--------|--------|-------|
-| Yelp | Official API (Fusion) | Requires `YELP_API_KEY` env var. Returns up to 150/category. Does NOT return business website URLs. |
-| Yellow Pages | HTML scraping (httpx + BeautifulSoup) | 2 pages per category, polite delay 1.5–2.5s |
+| Yelp | Official API (Fusion) | Requires `YELP_API_KEY`. Up to 1000/category (20 paginated calls). Does NOT return business website URLs. |
+| Yellow Pages | HTML scraping | 5 pages/category, polite 1.5–2.5s delay |
+| BBB | HTML scraping + `__NEXT_DATA__` JSON (Next.js) | 3 pages/category. Parses Next.js JSON first, HTML fallback |
+| Manta | HTML scraping | 3 pages/category |
+| Superpages | HTML scraping | 3 pages/category (same parent company as YP — similar structure) |
 
-## What Was In Progress (session ended here)
-- Integrating additional free scraping sources beyond Yelp + Yellow Pages
-- Questions being asked to Edward to clarify requirements before adding more sources
-- Candidate sources to add: **Google Maps (via SerpAPI or scraping)**, **BBB (Better Business Bureau)**, **Manta**, **Hotfrog**, **Cylex**, **local chamber of commerce pages**
+## Scheduling
+- APScheduler (`AsyncIOScheduler`) runs inside the FastAPI process
+- On startup, loads all enabled schedules from `search_schedules` Supabase table
+- `POST /api/schedules` — create a schedule (5-part cron expression, e.g. `"0 8 * * *"`)
+- `GET /api/schedules` — list all
+- `PATCH /api/schedules/{id}` — enable/disable
+- `DELETE /api/schedules/{id}` — remove
+- Manual trigger: `POST /api/search` (unchanged)
 
-## Pending Questions (from last session, needs answers from Edward)
-1. Do you want to add more sources now, or improve the existing Yelp + YP pipeline first?
-2. Any geographic constraints? (US only, specific states, etc.)
-3. Do you want Google Maps as a source? (scraping is fragile; SerpAPI costs money)
-4. Should the scraper run on a schedule automatically, or always manual trigger?
-5. Is there a target lead volume per search run?
+## Key Fixes Applied
+- **Dedup merge bug fixed**: Yelp records win dedup order but lack website URLs. If a later source (YP, BBB, etc.) has a website for the same business, it now gets merged in instead of dropped.
+- **Yelp pagination**: Increased from 150 to 1000 max per category.
+- **Evaluation semaphore**: Increased from 5 to 10 concurrent website checks.
 
 ## Environment Variables
 ```

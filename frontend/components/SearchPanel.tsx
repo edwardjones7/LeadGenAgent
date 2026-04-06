@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, MapPin, Tag, ChevronDown } from "lucide-react";
 import clsx from "clsx";
 import { NICHE_CATEGORIES } from "@/lib/constants";
 import type { SearchResponse } from "@/lib/types";
@@ -16,6 +16,7 @@ interface Props {
 export function SearchPanel({ onSearch, searching, lastResult, error }: Props) {
   const [location, setLocation] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState(true);
 
   const toggle = (cat: string) => {
     setSelected((prev) => {
@@ -33,113 +34,122 @@ export function SearchPanel({ onSearch, searching, lastResult, error }: Props) {
     onSearch(location.trim(), Array.from(selected));
   };
 
-  return (
-    <aside className="w-72 shrink-0 flex flex-col gap-4 border-r border-zinc-800 p-5 overflow-y-auto">
-      {/* Logo / Brand */}
-      <div className="mb-1">
-        <span className="text-[#a200ff] font-bold text-lg tracking-tight">elenos</span>
-        <span className="text-zinc-400 text-xs ml-2 uppercase tracking-widest">Lead Intel</span>
-      </div>
+  const canRun = location.trim() && selected.size > 0 && !searching;
 
-      {/* Location */}
-      <div>
-        <label className="text-xs text-zinc-400 uppercase tracking-widest mb-1.5 block">
+  return (
+    <aside className="w-68 shrink-0 flex flex-col border-r border-zinc-800/80 overflow-y-auto bg-[#0c0c12]">
+      {/* Location section */}
+      <div className="px-4 pt-4 pb-3 border-b border-zinc-800/60">
+        <label className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-medium">
+          <MapPin size={10} />
           Location
         </label>
         <input
           type="text"
-          placeholder="e.g. Camden, NJ"
+          placeholder="City, State — e.g. Camden, NJ"
           value={location}
           onChange={(e) => setLocation(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-[#a200ff] transition-colors"
+          className="w-full bg-zinc-900/60 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-700 focus:outline-none focus:border-[#a200ff]/60 focus:bg-zinc-900 transition-all"
         />
       </div>
 
-      {/* Niches */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-zinc-400 uppercase tracking-widest">Niches</label>
-          <div className="flex gap-2">
+      {/* Niches section */}
+      <div className="px-4 pt-3 pb-3 border-b border-zinc-800/60 flex-1">
+        <div className="flex items-center justify-between mb-2.5">
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest font-medium hover:text-zinc-300 transition-colors"
+          >
+            <Tag size={10} />
+            Niches
+            {selected.size > 0 && (
+              <span className="ml-1 bg-[#a200ff]/20 text-[#c060ff] border border-[#a200ff]/30 rounded-full px-1.5 py-0 text-[9px] font-bold">
+                {selected.size}
+              </span>
+            )}
+            <ChevronDown
+              size={10}
+              className={clsx("transition-transform ml-0.5", expanded ? "rotate-180" : "")}
+            />
+          </button>
+          <div className="flex gap-2.5">
             <button
               onClick={selectAll}
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="text-[10px] text-zinc-600 hover:text-[#c060ff] transition-colors"
             >
               All
             </button>
-            <span className="text-zinc-700">|</span>
             <button
               onClick={clearAll}
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
             >
               None
             </button>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {NICHE_CATEGORIES.map((cat) => {
-            const active = selected.has(cat);
-            return (
-              <button
-                key={cat}
-                onClick={() => toggle(cat)}
-                className={clsx(
-                  "text-left px-2 py-1.5 rounded text-xs capitalize transition-all border",
-                  active
-                    ? "bg-[#a200ff]/20 border-[#a200ff]/50 text-[#c060ff]"
-                    : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
-                )}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
+
+        {expanded && (
+          <div className="grid grid-cols-2 gap-1">
+            {NICHE_CATEGORIES.map((cat) => {
+              const active = selected.has(cat);
+              return (
+                <button
+                  key={cat}
+                  onClick={() => toggle(cat)}
+                  className={clsx(
+                    "text-left px-2 py-1.5 rounded-md text-[11px] capitalize transition-all border font-medium",
+                    active
+                      ? "bg-[#a200ff]/15 border-[#a200ff]/40 text-[#c878ff] shadow-[inset_0_0_8px_rgba(162,0,255,0.08)]"
+                      : "bg-zinc-900/40 border-zinc-800/70 text-zinc-600 hover:border-zinc-700 hover:text-zinc-400"
+                  )}
+                >
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Run button */}
-      <button
-        onClick={handleSubmit}
-        disabled={!location.trim() || selected.size === 0 || searching}
-        className={clsx(
-          "flex items-center justify-center gap-2 py-2.5 rounded font-semibold text-sm transition-all",
-          !location.trim() || selected.size === 0 || searching
-            ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-            : "bg-[#a200ff] hover:bg-[#8800d9] text-white shadow-[0_0_16px_rgba(162,0,255,0.3)]"
-        )}
-      >
-        {searching ? (
-          <>
-            <Loader2 size={14} className="animate-spin" />
-            Searching…
-          </>
-        ) : (
-          <>
-            <Search size={14} />
-            Run Search
-          </>
-        )}
-      </button>
+      <div className="px-4 py-4 mt-auto border-t border-zinc-800/60">
+        <button
+          onClick={handleSubmit}
+          disabled={!canRun}
+          className={clsx(
+            "w-full flex items-center justify-center gap-2 py-2.5 rounded-md font-semibold text-sm transition-all",
+            canRun
+              ? "bg-[#a200ff] hover:bg-[#8c00e0] text-white shadow-[0_0_20px_rgba(162,0,255,0.35)] hover:shadow-[0_0_28px_rgba(162,0,255,0.5)]"
+              : "bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed"
+          )}
+        >
+          {searching ? (
+            <>
+              <Loader2 size={13} className="animate-spin" />
+              <span>Searching…</span>
+            </>
+          ) : (
+            <>
+              <Search size={13} />
+              <span>Run Search</span>
+            </>
+          )}
+        </button>
 
-      {/* Last run stats */}
-      {lastResult && !searching && (
-        <div className="text-xs text-zinc-500 border border-zinc-800 rounded p-3 space-y-1">
-          <div className="text-zinc-300 font-medium">Last run</div>
-          <div>
-            <span className="text-[#a200ff] font-semibold">{lastResult.new_leads}</span> new leads
-          </div>
-          <div>
-            <span className="text-zinc-400">{lastResult.dupes_skipped}</span> skipped (duplicates)
-          </div>
-        </div>
-      )}
+        {selected.size > 0 && location.trim() && !searching && (
+          <p className="text-center text-[10px] text-zinc-600 mt-2">
+            {selected.size} {selected.size === 1 ? "category" : "categories"} · {location.trim()}
+          </p>
+        )}
 
-      {/* Error */}
-      {error && (
-        <div className="text-xs text-red-400 border border-red-900/50 rounded p-3 bg-red-950/20">
-          {error}
-        </div>
-      )}
+        {/* Error */}
+        {error && (
+          <div className="mt-3 text-[11px] text-red-400 border border-red-900/40 rounded-md p-2.5 bg-red-950/20 leading-relaxed">
+            {error}
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

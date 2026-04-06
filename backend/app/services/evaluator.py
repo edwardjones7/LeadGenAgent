@@ -16,11 +16,14 @@ HEADERS = {
     )
 }
 
+HTML_SIZE_LIMIT = 50 * 1024  # 50 KB — captures all <head> + first-screen content
+
 
 async def evaluate(url: str, client: httpx.AsyncClient) -> dict:
-    """Evaluate a website and return a quality score (1-10) and reasons.
+    """Evaluate a website and return a quality score (1-10), reasons, and homepage HTML.
 
     Higher score = worse website = better lead for Elenos.
+    Returns: {"score": int, "score_reason": str, "homepage_html": str}
     """
     reasons = []
     penalty = 0
@@ -30,24 +33,35 @@ async def evaluate(url: str, client: httpx.AsyncClient) -> dict:
         reasons.append("No SSL certificate (HTTP only)")
         penalty += 3
 
-    # Fetch page
+    # Fetch page — stream with 50KB cap to bound memory usage
     start = time.monotonic()
     try:
-        response = await client.get(url, timeout=10.0, follow_redirects=True)
-        load_time = time.monotonic() - start
+        async with client.stream("GET", url, timeout=10.0) as response:
+            load_time = time.monotonic() - start
+
+            if response.status_code >= 400:
+                reasons.append(f"Website returns error ({response.status_code})")
+                penalty += 4
+                return _finalize(penalty, reasons, "")
+
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes(4096):
+                chunks.append(chunk)
+                size += len(chunk)
+                if size >= HTML_SIZE_LIMIT:
+                    break
+
+            html_text = b"".join(chunks).decode("utf-8", errors="replace")
+
     except httpx.TimeoutException:
         reasons.append("Website unreachable (timeout)")
         penalty += 5
-        return _finalize(penalty, reasons)
+        return _finalize(penalty, reasons, "")
     except Exception:
         reasons.append("Website connection failed")
         penalty += 5
-        return _finalize(penalty, reasons)
-
-    if response.status_code >= 400:
-        reasons.append(f"Website returns error ({response.status_code})")
-        penalty += 4
-        return _finalize(penalty, reasons)
+        return _finalize(penalty, reasons, "")
 
     # Load time
     if load_time > 6:
@@ -57,8 +71,8 @@ async def evaluate(url: str, client: httpx.AsyncClient) -> dict:
         reasons.append(f"Slow page load ({load_time:.1f}s)")
         penalty += 2
 
-    # Parse HTML
-    soup = BeautifulSoup(response.text, "lxml")
+    # Parse HTML — use stdlib html.parser (lower CPU/memory than lxml on small docs)
+    soup = BeautifulSoup(html_text, "html.parser")
 
     # Mobile viewport
     viewport = soup.find("meta", attrs={"name": "viewport"})
@@ -105,10 +119,10 @@ async def evaluate(url: str, client: httpx.AsyncClient) -> dict:
                 penalty += 1
                 break
 
-    return _finalize(penalty, reasons)
+    return _finalize(penalty, reasons, html_text)
 
 
-def _finalize(penalty: int, reasons: list[str]) -> dict:
+def _finalize(penalty: int, reasons: list[str], html: str = "") -> dict:
     score = max(1, min(10, penalty))
     reason_text = "; ".join(reasons) if reasons else "Website appears acceptable"
-    return {"score": score, "score_reason": reason_text}
+    return {"score": score, "score_reason": reason_text, "homepage_html": html}

@@ -28,10 +28,8 @@ async def search_businesses(category: str, location: str) -> list[dict]:
                 results.extend(businesses)
                 if offset + 50 >= data.get("total", 0):
                     break
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    break
-                raise
+            except httpx.HTTPStatusError:
+                break  # stop pagination on any HTTP error (400 = past offset limit, 429 = rate limit)
     return results
 
 

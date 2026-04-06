@@ -1,4 +1,4 @@
-import type { Lead, SearchRequest, SearchResponse } from "./types";
+import type { Lead, SearchRequest, SearchResponse, EmailRecord, WebsiteSpec, AiAnalysis } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -38,7 +38,7 @@ export const api = {
     return request<Lead>(`/api/leads/${id}`);
   },
 
-  updateLead(id: string, data: { status?: string; email?: string }): Promise<Lead> {
+  updateLead(id: string, data: { status?: string; email?: string; outreach_status?: string }): Promise<Lead> {
     return request<Lead>(`/api/leads/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -54,6 +54,37 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     });
+  },
+
+  analyzeOutreach(leadId: string): Promise<{ lead_id: string; ai_analysis: AiAnalysis; outreach_status: string }> {
+    return request(`/api/outreach/${leadId}/analyze`, { method: "POST" });
+  },
+
+  sendOutreach(
+    leadId: string,
+    dryRun = false,
+  ): Promise<{
+    lead_id: string;
+    email_id: string | null;
+    resend_id: string | null;
+    status: string;
+    subject: string;
+    body: string;
+    dry_run: boolean;
+    error?: string | null;
+  }> {
+    return request(`/api/outreach/${leadId}/send`, {
+      method: "POST",
+      body: JSON.stringify({ dry_run: dryRun }),
+    });
+  },
+
+  getEmailHistory(leadId: string): Promise<EmailRecord[]> {
+    return request(`/api/outreach/${leadId}/emails`);
+  },
+
+  generateWebsiteSpec(leadId: string): Promise<WebsiteSpec> {
+    return request(`/api/outreach/${leadId}/generate-site`, { method: "POST" });
   },
 
   exportUrl(params?: { status?: string; category?: string; min_score?: number }): string {

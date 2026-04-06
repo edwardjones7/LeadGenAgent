@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     yelp_api_key: str
     supabase_url: str
     supabase_key: str
+    groq_api_key: str | None = None
+    resend_api_key: str | None = None
+    from_email: str | None = None
 
     model_config = SettingsConfigDict(env_file=str(_ENV_FILE), env_file_encoding="utf-8")
 
