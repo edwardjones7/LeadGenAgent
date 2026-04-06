@@ -36,7 +36,11 @@
       "Bash(curl -s -X POST http://localhost:8000/api/search -H 'Content-Type: application/json' -d '{\"location\": \"Camden, NJ\", \"categories\": [\"restaurants\"]}')",
       "Bash(curl -s \"http://localhost:8000/api/leads?limit=5&sort_by=score&sort_dir=desc\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/health)",
-      "Bash(curl -s -X POST http://localhost:8000/api/search -H 'Content-Type: application/json' -d '{\"location\": \"Austin, TX\", \"categories\": [\"plumbers\"]}')"
+      "Bash(curl -s -X POST http://localhost:8000/api/search -H 'Content-Type: application/json' -d '{\"location\": \"Austin, TX\", \"categories\": [\"plumbers\"]}')",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(nohup bash:*)"
     ]
   }
 }

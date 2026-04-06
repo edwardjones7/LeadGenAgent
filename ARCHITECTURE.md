@@ -407,3 +407,14 @@ npm run dev
 - Backend: http://localhost:8000
 - Frontend: http://localhost:3000
 - API docs: http://localhost:8000/docs
+
+## Stopping / Restarting (Windows)
+
+`pkill` does not work on Windows. Use `taskkill` to stop Python processes:
+
+```bash
+taskkill //F //IM python.exe   # kills all Python (backend)
+taskkill //F //PID 8576        # kills specific PID (e.g. frontend node process)
+```
+
+Running multiple stale Python instances will cause the old broken code to keep serving requests even after you restart — always verify with `tasklist | grep python` that only 2 processes exist (reloader + server).
