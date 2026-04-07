@@ -78,6 +78,19 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS outreach_status  TEXT NOT NULL DEFAUL
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_emailed_at  TIMESTAMPTZ;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS follow_up_count  INTEGER NOT NULL DEFAULT 0;
 
+-- Chat messages for the AI assistant
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  role          TEXT NOT NULL,
+  content       TEXT NOT NULL DEFAULT '',
+  tool_calls    JSONB,
+  tool_call_id  TEXT,
+  context       JSONB,
+  created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS chat_messages_created_at_idx ON chat_messages (created_at DESC);
+
 -- Auto-update updated_at on leads
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

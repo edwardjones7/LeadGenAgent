@@ -75,3 +75,49 @@ export interface SearchResponse {
   dupes_skipped: number;
   leads: Lead[];
 }
+
+/* ── Chat ── */
+
+export interface ChatToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_calls?: ChatToolCall[];
+  tool_call_id?: string;
+  created_at?: string;
+}
+
+export interface PageContext {
+  selected_lead: Lead | null;
+  visible_lead_ids: string[];
+  filters: {
+    status?: string;
+    min_score?: number;
+  };
+  search_state: {
+    location: string;
+    categories: string[];
+  };
+}
+
+export interface SearchLogEntry {
+  type: "log" | "progress" | "result" | "error";
+  stage: string;
+  message: string;
+  detail?: Record<string, unknown>;
+  progress?: { current: number; total: number };
+  data?: SearchResponse;
+}
+
+export interface ChatSSEEvent {
+  type: "chunk" | "tool_call" | "tool_result" | "done";
+  content?: string;
+  name?: string;
+  args?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}

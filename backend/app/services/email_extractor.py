@@ -9,7 +9,11 @@ EXCLUDE_DOMAINS = {
     "wordpress.com", "squarespace.com", "godaddy.com", "domain.com",
     "email.com", "youremail.com", "placeholder.com",
 }
-CONTACT_PATHS = ["/contact", "/contact-us"]
+CONTACT_PATHS = [
+    "/contact", "/contact-us", "/contact_us",
+    "/about", "/about-us", "/about_us",
+    "/team", "/our-team", "/staff",
+]
 PRIORITY_PREFIXES = ["info", "contact", "hello", "support", "admin"]
 
 HEADERS = {
@@ -32,8 +36,12 @@ async def extract_email(url: str, homepage_html: str, client: httpx.AsyncClient)
     if emails:
         return _pick_best(emails, base_domain)
 
-    # 2. Try contact/about pages — stream with 50KB cap
-    for path in CONTACT_PATHS:
+    # 2. Discover contact-like links from homepage nav
+    extra_paths = _discover_contact_paths(homepage_html, url)
+    all_paths = list(dict.fromkeys(CONTACT_PATHS + extra_paths))  # dedup, preserve order
+
+    # 3. Try contact/about pages — stream with 50KB cap
+    for path in all_paths:
         contact_url = urljoin(url, path)
         try:
             async with client.stream("GET", contact_url, timeout=8.0, follow_redirects=True) as resp:
@@ -83,6 +91,31 @@ def _extract_from_html(html: str, base_domain: str) -> list[str]:
     ]
 
     return filtered
+
+
+_CONTACT_KEYWORDS = re.compile(r"contact|email|reach|get\s+in\s+touch", re.IGNORECASE)
+
+
+def _discover_contact_paths(html: str, base_url: str) -> list[str]:
+    """Scan homepage <a> tags for links whose text suggests a contact page."""
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    parsed_base = urlparse(base_url)
+    paths: list[str] = []
+    for a_tag in soup.find_all("a", href=True):
+        text = a_tag.get_text(strip=True)
+        if not text or not _CONTACT_KEYWORDS.search(text):
+            continue
+        href = a_tag["href"]
+        parsed = urlparse(href)
+        # Only follow same-domain or relative links
+        if parsed.netloc and parsed.netloc.replace("www.", "") != parsed_base.netloc.replace("www.", ""):
+            continue
+        path = parsed.path
+        if path and path != "/" and path not in paths:
+            paths.append(path)
+    return paths
 
 
 def _pick_best(emails: list[str], base_domain: str) -> str:

@@ -1,0 +1,17 @@
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="40" height="40" rx="12" fill="#a200ff"/>
+  <rect width="40" height="40" rx="12" fill="url(#grad)" opacity="0.5"/>
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="40" y2="40">
+      <stop offset="0%" stop-color="#c060ff"/>
+      <stop offset="100%" stop-color="#6b00cc"/>
+    </linearGradient>
+  </defs>
+  <!-- Stylized "A" mark -->
+  <path d="M20 8L10 32h4.5l2-5.5h7l2 5.5H30L20 8zm-1.8 14.5L20 16l1.8 6.5h-3.6z" fill="white" opacity="0.95"/>
+  <!-- Subtle circuit dots -->
+  <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.2"/>
+  <circle cx="32" cy="8" r="1.5" fill="white" opacity="0.2"/>
+  <circle cx="8" cy="32" r="1.5" fill="white" opacity="0.15"/>
+  <circle cx="32" cy="32" r="1.5" fill="white" opacity="0.15"/>
+</svg>

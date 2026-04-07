@@ -157,7 +157,7 @@ export function LeadsTable({ leads, loading, onSelectLead, selectedId }: Props) 
   const activeFilters = (statusFilter !== "All" ? 1 : 0) + (minScore > 0 ? 1 : 0);
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+    <div className="flex flex-col h-full min-w-0 overflow-hidden">
       {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/80 shrink-0 gap-3">
         <div className="flex items-center gap-3">

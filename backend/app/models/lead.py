@@ -26,9 +26,40 @@ class Lead(BaseModel):
 
 
 class LeadUpdate(BaseModel):
-    status: str | None = None
+    business_name: str | None = None
+    city: str | None = None
+    state: str | None = None
+    phone: str | None = None
     email: str | None = None
+    website_url: str | None = None
+    category: str | None = None
+    status: str | None = None
     outreach_status: str | None = None
+
+
+class ManualLeadCreate(BaseModel):
+    business_name: str
+    city: str
+    state: str
+    phone: str | None = None
+    email: str | None = None
+    website_url: str | None = None
+    category: str | None = None
+
+
+class ChatMessage(BaseModel):
+    id: str | None = None
+    role: str
+    content: str
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
+    context: dict[str, Any] | None = None
+    created_at: datetime | None = None
+
+
+class ChatRequest(BaseModel):
+    message: str
+    context: dict[str, Any] | None = None
 
 
 class OutreachSendRequest(BaseModel):

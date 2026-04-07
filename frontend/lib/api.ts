@@ -1,4 +1,4 @@
-import type { Lead, SearchRequest, SearchResponse, EmailRecord, WebsiteSpec, AiAnalysis } from "./types";
+import type { Lead, SearchRequest, SearchResponse, EmailRecord, WebsiteSpec, AiAnalysis, ChatMessage, PageContext } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -96,5 +96,31 @@ export const api = {
     }
     const query = qs.toString() ? `?${qs}` : "";
     return `${BASE}/api/leads/export${query}`;
+  },
+
+  /* ── Chat ── */
+
+  searchStream(data: SearchRequest): Promise<Response> {
+    return fetch(`${BASE}/api/search/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  sendChatMessage(message: string, context: PageContext): Promise<Response> {
+    return fetch(`${BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, context }),
+    });
+  },
+
+  getChatHistory(limit = 50): Promise<ChatMessage[]> {
+    return request<ChatMessage[]>(`/api/chat/history?limit=${limit}`);
+  },
+
+  clearChatHistory(): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>("/api/chat/history", { method: "DELETE" });
   },
 };
