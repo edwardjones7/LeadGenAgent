@@ -67,7 +67,12 @@
       "Bash(taskkill //F //PID 30044)",
       "Bash(taskkill //F //PID 36788)",
       "Bash(taskkill //F //PID 28864)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git stash:*)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force --index-filter \"git rm --cached --ignore-unmatch backend/.env\" --prune-empty -- --all)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
