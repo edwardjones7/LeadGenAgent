@@ -249,6 +249,27 @@ TOOL_DEFINITIONS = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_emails",
+            "description": "Deep email search for leads that are missing emails. Searches the business website, Google, Yelp, BBB, Yellow Pages, and tries common email patterns. Can target a specific lead by ID or find emails for all leads missing them (up to 20 at a time).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lead_id": {
+                        "type": "string",
+                        "description": "Optional — a specific lead's UUID to find email for. If omitted, finds emails for all leads missing them.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max leads to process when doing bulk search (default 20)",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -524,6 +545,74 @@ async def _read_memory(args: dict) -> dict:
         return {"memory": "(no memory file found)"}
 
 
+async def _find_emails(args: dict) -> dict:
+    from app.services.email_extractor import find_email_for_lead, bulk_find_emails
+
+    db = get_db()
+    lead_id = args.get("lead_id")
+    limit = args.get("limit", 20)
+
+    if lead_id:
+        # Single lead
+        result = db.table("leads").select("*").eq("id", lead_id).single().execute()
+        if not result.data:
+            return {"error": "Lead not found"}
+        lead = result.data
+        if lead.get("email"):
+            return {"success": True, "message": f"Lead already has email: {lead['email']}", "email": lead["email"]}
+
+        found = await find_email_for_lead(
+            business_name=lead["business_name"],
+            city=lead["city"],
+            state=lead["state"],
+            website_url=lead.get("website_url"),
+            phone=lead.get("phone"),
+        )
+        if found["email"]:
+            db.table("leads").update({"email": found["email"]}).eq("id", lead_id).execute()
+            return {
+                "success": True,
+                "email": found["email"],
+                "source": found["source"],
+                "message": f"Found {found['email']} via {found['source']} for {lead['business_name']}",
+            }
+        return {"success": False, "message": f"Could not find email for {lead['business_name']}", "source": "not_found"}
+
+    else:
+        # Bulk — find emails for all leads missing them
+        result = (
+            db.table("leads")
+            .select("id,business_name,city,state,phone,website_url,email")
+            .is_("email", "null")
+            .order("score", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        leads = result.data or []
+        if not leads:
+            return {"success": True, "message": "All leads already have emails!", "found": 0, "total": 0}
+
+        results = await bulk_find_emails(leads)
+
+        found_count = 0
+        details = []
+        for r in results:
+            if r.get("email"):
+                db.table("leads").update({"email": r["email"]}).eq("id", r["lead_id"]).execute()
+                found_count += 1
+                # Find the lead name for the message
+                lead_name = next((l["business_name"] for l in leads if l["id"] == r["lead_id"]), "Unknown")
+                details.append(f"{lead_name}: {r['email']} ({r['source']})")
+
+        return {
+            "success": True,
+            "found": found_count,
+            "total": len(leads),
+            "message": f"Found emails for {found_count}/{len(leads)} leads",
+            "details": details,
+        }
+
+
 _HANDLERS = {
     "search_leads": _search_leads,
     "add_lead": _add_lead,
@@ -540,4 +629,5 @@ _HANDLERS = {
     "browser_click": _browser_click,
     "browser_type": _browser_type,
     "browser_get_links": _browser_get_links,
+    "find_emails": _find_emails,
 }

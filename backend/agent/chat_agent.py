@@ -95,6 +95,7 @@ def _build_system_prompt(context: dict | None) -> str:
 - **send_outreach** — Send or preview an outreach email
 - **save_memory** — Save something to persistent memory (preferences, markets, outreach, industry, corrections)
 - **read_memory** — Read full persistent memory
+- **find_emails** — Deep email search for leads missing emails (website, Google, Yelp, BBB, YP, common patterns). Pass a lead_id for one, or omit for bulk.
 - **browser_navigate** — Open a URL in the headless browser
 - **browser_screenshot** — Take a screenshot of the current page
 - **browser_get_text** — Extract visible text from the page or an element
