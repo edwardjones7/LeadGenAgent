@@ -98,6 +98,14 @@ export const api = {
     return `${BASE}/api/leads/export${query}`;
   },
 
+  /* ── Email Finder ── */
+
+  findEmailsStream(limit = 20): Promise<Response> {
+    return fetch(`${BASE}/api/leads/find-emails/stream?limit=${limit}`, {
+      method: "POST",
+    });
+  },
+
   /* ── Chat ── */
 
   searchStream(data: SearchRequest): Promise<Response> {

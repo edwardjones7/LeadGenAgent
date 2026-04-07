@@ -66,7 +66,8 @@
       "Bash(taskkill //F //PID 22772)",
       "Bash(taskkill //F //PID 30044)",
       "Bash(taskkill //F //PID 36788)",
-      "Bash(taskkill //F //PID 28864)"
+      "Bash(taskkill //F //PID 28864)",
+      "Bash(git fetch:*)"
     ]
   }
 }

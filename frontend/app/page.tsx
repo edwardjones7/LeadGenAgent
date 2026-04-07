@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Zap, Search, MessageSquare } from "lucide-react";
+import { Zap, Search, MessageSquare, Mail } from "lucide-react";
 import { SearchPanel } from "@/components/SearchPanel";
 import { LeadsTable } from "@/components/LeadsTable";
 import { LeadDetailPanel } from "@/components/LeadDetailPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { SearchLogOverlay } from "@/components/SearchLogOverlay";
+import { EmailFinderOverlay } from "@/components/EmailFinderOverlay";
 import { useLeads } from "@/hooks/useLeads";
 import { useSearchStream } from "@/hooks/useSearchStream";
 import type { Lead } from "@/lib/types";
@@ -19,6 +20,7 @@ export default function Home() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [emailFinderOpen, setEmailFinderOpen] = useState(false);
   const [lastSearchState, setLastSearchState] = useState({ location: "", categories: [] as string[] });
 
   const handleSearch = async (location: string, categories: string[]) => {
@@ -76,6 +78,15 @@ export default function Home() {
           >
             <Search size={12} />
             Search
+          </button>
+
+          {/* Email Finder button */}
+          <button
+            onClick={() => setEmailFinderOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 border border-zinc-800"
+          >
+            <Mail size={12} />
+            Find Emails
           </button>
 
           <div className="h-4 w-px bg-zinc-800" />
@@ -155,6 +166,12 @@ export default function Home() {
           detailOpen={!!selectedLead}
         />
       )}
+
+      <EmailFinderOverlay
+        open={emailFinderOpen}
+        onClose={() => setEmailFinderOpen(false)}
+        onComplete={fetchLeads}
+      />
 
       {showLogs && (
         <SearchLogOverlay

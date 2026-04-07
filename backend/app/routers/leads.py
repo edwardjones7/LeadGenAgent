@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
@@ -100,3 +101,61 @@ def delete_lead(lead_id: str):
     db = get_db()
     db.table("leads").delete().eq("id", lead_id).execute()
     return {"ok": True}
+
+
+@router.post("/find-emails/stream")
+async def find_emails_stream(limit: int = Query(20)):
+    """Stream email-finding progress as SSE events."""
+    from app.services.email_extractor import find_email_for_lead
+
+    async def event_generator():
+        db = get_db()
+        result = (
+            db.table("leads")
+            .select("id,business_name,city,state,phone,website_url,email")
+            .is_("email", "null")
+            .order("score", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        leads = result.data or []
+
+        if not leads:
+            yield f"data: {json.dumps({'type': 'log', 'message': 'All leads already have emails!'})}\n\n"
+            yield f"data: {json.dumps({'type': 'result', 'found': 0, 'total': 0})}\n\n"
+            return
+
+        yield f"data: {json.dumps({'type': 'log', 'message': f'Found {len(leads)} leads without emails. Starting search...'})}\n\n"
+
+        found_count = 0
+        for i, lead in enumerate(leads):
+            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': len(leads), 'message': f'Searching for {lead[\"business_name\"]}...'})}\n\n"
+
+            try:
+                result = await find_email_for_lead(
+                    business_name=lead["business_name"],
+                    city=lead["city"],
+                    state=lead["state"],
+                    website_url=lead.get("website_url"),
+                    phone=lead.get("phone"),
+                )
+                if result["email"]:
+                    db.table("leads").update({"email": result["email"]}).eq("id", lead["id"]).execute()
+                    found_count += 1
+                    yield f"data: {json.dumps({'type': 'found', 'business': lead['business_name'], 'email': result['email'], 'source': result['source']})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'log', 'message': f'No email found for {lead[\"business_name\"]}'})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'log', 'message': f'Error searching {lead[\"business_name\"]}: {str(e)[:100]}'})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'result', 'found': found_count, 'total': len(leads), 'message': f'Done — found {found_count}/{len(leads)} emails'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
