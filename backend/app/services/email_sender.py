@@ -17,12 +17,15 @@ def send_email(to: str, subject: str, body: str) -> dict:
     try:
         import resend
         resend.api_key = settings.resend_api_key
-        response = resend.Emails.send({
+        email_payload = {
             "from": settings.from_email,
             "to": [to],
             "subject": subject,
             "text": body,
-        })
+        }
+        if settings.reply_to_email:
+            email_payload["reply_to"] = [settings.reply_to_email]
+        response = resend.Emails.send(email_payload)
         msg_id = response.get("id") if isinstance(response, dict) else getattr(response, "id", None)
         return {"id": msg_id, "status": "sent", "error": None}
     except ImportError:

@@ -1,4 +1,4 @@
-import type { Lead, SearchRequest, SearchResponse, EmailRecord, WebsiteSpec, AiAnalysis, ChatMessage, PageContext } from "./types";
+import type { Lead, SearchRequest, SearchResponse, EmailRecord, WebsiteSpec, AiAnalysis, ChatMessage, PageContext, QueueEntry } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -96,6 +96,45 @@ export const api = {
     }
     const query = qs.toString() ? `?${qs}` : "";
     return `${BASE}/api/leads/export${query}`;
+  },
+
+  /* ── Clear All ── */
+
+  clearAllLeads(): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>("/api/search/clear-leads", { method: "POST" });
+  },
+
+  /* ── Search Queue ── */
+
+  queueSearch(data: SearchRequest): Promise<QueueEntry> {
+    return request<QueueEntry>("/api/search/queue", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  getSearchQueue(): Promise<QueueEntry[]> {
+    return request<QueueEntry[]>("/api/search/queue");
+  },
+
+  cancelQueuedSearch(id: string): Promise<void> {
+    return request<void>(`/api/search/queue/${id}`, { method: "DELETE" });
+  },
+
+  stopRunningSearch(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/search/queue/${id}/stop`, { method: "POST" });
+  },
+
+  removeQueueEntry(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/search/queue/${id}/remove`, { method: "DELETE" });
+  },
+
+  clearFinishedSearches(): Promise<{ ok: boolean; removed: number }> {
+    return request<{ ok: boolean; removed: number }>("/api/search/queue/clear", { method: "POST" });
+  },
+
+  streamQueueLogs(id: string): Promise<Response> {
+    return fetch(`${BASE}/api/search/queue/${id}/logs`);
   },
 
   /* ── Email Finder ── */

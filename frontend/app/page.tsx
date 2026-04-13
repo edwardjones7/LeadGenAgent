@@ -1,34 +1,45 @@
 "use client";
 
 import { useState } from "react";
-import { Zap, Search, MessageSquare, Mail } from "lucide-react";
+import { Zap, Search, MessageSquare, Mail, ListTodo, Trash2 } from "lucide-react";
 import { SearchPanel } from "@/components/SearchPanel";
 import { LeadsTable } from "@/components/LeadsTable";
 import { LeadDetailPanel } from "@/components/LeadDetailPanel";
 import { ChatPanel } from "@/components/ChatPanel";
-import { SearchLogOverlay } from "@/components/SearchLogOverlay";
 import { EmailFinderOverlay } from "@/components/EmailFinderOverlay";
+import { SearchQueuePanel } from "@/components/SearchQueuePanel";
 import { useLeads } from "@/hooks/useLeads";
-import { useSearchStream } from "@/hooks/useSearchStream";
+import { useSearchQueue } from "@/hooks/useSearchQueue";
+import { api } from "@/lib/api";
 import type { Lead } from "@/lib/types";
 
 export default function Home() {
   const { leads, loading, updateLead, deleteLead, fetchLeads } = useLeads();
-  const { logs, isSearching, progress, result, error: searchError, runSearch, clearLogs } = useSearchStream();
+  const { queue, activeCount, enqueue, cancel, stop, remove, clearFinished, fetchQueue } = useSearchQueue(fetchLeads);
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
   const [emailFinderOpen, setEmailFinderOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [lastSearchState, setLastSearchState] = useState({ location: "", categories: [] as string[] });
 
   const handleSearch = async (location: string, categories: string[]) => {
     setLastSearchState({ location, categories });
-    setShowLogs(true);
-    const res = await runSearch(location, categories);
-    if (res && res.new_leads > 0) await fetchLeads();
-    return res;
+    await enqueue({ location, categories });
+    setQueueOpen(true);
+  };
+
+  const handleClearAll = async () => {
+    const count = leads.length;
+    if (count === 0) return;
+    const msg = `Delete all ${count} lead${count === 1 ? "" : "s"}? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    try {
+      await api.clearAllLeads();
+      setSelectedLead(null);
+      await fetchLeads();
+    } catch { /* ignore */ }
   };
 
   const handleSelectLead = (lead: Lead) => {
@@ -44,11 +55,6 @@ export default function Home() {
   const handleDeleteLead = async (id: string) => {
     await deleteLead(id);
     if (selectedLead?.id === id) setSelectedLead(null);
-  };
-
-  const handleCloseSearchLog = () => {
-    setShowLogs(false);
-    clearLogs();
   };
 
   return (
@@ -80,6 +86,24 @@ export default function Home() {
             Search
           </button>
 
+          {/* Queue button */}
+          <button
+            onClick={() => setQueueOpen((v) => !v)}
+            className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              queueOpen
+                ? "bg-[#a200ff]/20 text-[#c060ff] border border-[#a200ff]/40"
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 border border-zinc-800"
+            }`}
+          >
+            <ListTodo size={12} />
+            Queue
+            {activeCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-[#a200ff] text-white rounded-full w-4 h-4 text-[9px] flex items-center justify-center font-bold shadow-[0_0_8px_rgba(162,0,255,0.6)]">
+                {activeCount}
+              </span>
+            )}
+          </button>
+
           {/* Email Finder button */}
           <button
             onClick={() => setEmailFinderOpen(true)}
@@ -91,24 +115,22 @@ export default function Home() {
 
           <div className="h-4 w-px bg-zinc-800" />
 
-          {result && !isSearching && (
-            <>
-              <span className="text-zinc-500">
-                Last: <span className="text-[#a200ff] font-semibold">{result.new_leads}</span> new · <span className="text-zinc-400">{result.dupes_skipped}</span> skipped
-              </span>
-              <div className="h-4 w-px bg-zinc-800" />
-            </>
-          )}
-
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
-            <span className="text-zinc-400">US</span>
-          </div>
-          <div className="h-4 w-px bg-zinc-800" />
           <span>
             <span className="text-zinc-200 font-semibold">{leads.length}</span>{" "}
             <span className="text-zinc-600">leads</span>
           </span>
+
+          {/* Clear all leads */}
+          <button
+            onClick={handleClearAll}
+            disabled={leads.length === 0}
+            title="Delete every lead"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all text-zinc-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 border border-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-500 disabled:hover:bg-transparent disabled:hover:border-zinc-800"
+          >
+            <Trash2 size={12} />
+            Clear
+          </button>
+
           <div className="h-4 w-px bg-zinc-800" />
 
           {/* Chat button */}
@@ -126,24 +148,37 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main content — full width table */}
-      <div className="flex-1 overflow-hidden">
-        <LeadsTable
-          leads={leads}
-          loading={loading}
-          onSelectLead={handleSelectLead}
-          selectedId={selectedLead?.id ?? null}
-        />
+      {/* Body — search sidebar + table */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Permanent search sidebar */}
+        {searchOpen && (
+          <SearchPanel
+            onSearch={handleSearch}
+            searching={activeCount > 0}
+          />
+        )}
+
+        {/* Table */}
+        <div className="flex-1 overflow-hidden">
+          <LeadsTable
+            leads={leads}
+            loading={loading}
+            onSelectLead={handleSelectLead}
+            selectedId={selectedLead?.id ?? null}
+          />
+        </div>
       </div>
 
       {/* Overlays */}
-      <SearchPanel
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSearch={handleSearch}
-        searching={isSearching}
-        lastResult={result}
-        error={searchError}
+      <SearchQueuePanel
+        open={queueOpen}
+        onClose={() => setQueueOpen(false)}
+        queue={queue}
+        onCancel={cancel}
+        onStop={stop}
+        onRemove={remove}
+        onClearFinished={clearFinished}
+        onRefresh={fetchQueue}
       />
 
       {selectedLead && (
@@ -172,17 +207,6 @@ export default function Home() {
         onClose={() => setEmailFinderOpen(false)}
         onComplete={fetchLeads}
       />
-
-      {showLogs && (
-        <SearchLogOverlay
-          logs={logs}
-          isSearching={isSearching}
-          progress={progress}
-          result={result}
-          error={searchError}
-          onClose={handleCloseSearchLog}
-        />
-      )}
     </div>
   );
 }

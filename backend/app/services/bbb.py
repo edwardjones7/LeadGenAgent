@@ -1,141 +1,120 @@
-import asyncio
-import json
-import random
+"""BBB scraper — uses headless Chrome to bypass bot detection."""
+
 import re
-import httpx
-from bs4 import BeautifulSoup
+import logging
+from urllib.parse import quote_plus
 
-BBB_BASE = "https://www.bbb.org/search"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+logger = logging.getLogger(__name__)
+
+_PHONE_RE = re.compile(r"(\(?\d{3}\)?[\s\-\.]\d{3}[\s\-\.]\d{4})")
 
 
-async def scrape_bbb(category: str, location: str, pages: int = 3) -> list[dict]:
-    """Scrape Better Business Bureau for businesses in a given category and location."""
+async def scrape_bbb(category: str, location: str, pages: int = 1) -> list[dict]:
+    """Scrape BBB using headless Chrome."""
+    from agent.browser import scrape_page
+
+    query = quote_plus(category)
+    loc = quote_plus(location)
+    url = f"https://www.bbb.org/search?find_text={query}&find_loc={loc}"
+
     results = []
-    async with httpx.AsyncClient(headers=HEADERS, timeout=15.0, follow_redirects=True) as client:
-        for page in range(1, pages + 1):
-            try:
-                resp = await client.get(
-                    BBB_BASE,
-                    params={"find_text": category, "find_loc": location, "page": page},
-                )
-                if resp.status_code != 200:
-                    break
+    try:
+        data = await scrape_page(url)
+        if not data.get("success"):
+            return []
 
-                businesses = _parse_bbb(resp.text, category)
-                if not businesses:
-                    break
-
-                results.extend(businesses)
-
-                if page < pages:
-                    await asyncio.sleep(random.uniform(1.5, 2.5))
-
-            except httpx.RequestError:
-                break
+        text = data.get("text", "")
+        results = _parse_bbb_text(text, category)
+        logger.info(f"BBB: found {len(results)} businesses for {category} in {location}")
+    except Exception as e:
+        logger.error(f"BBB scrape failed: {e}")
 
     return results
 
 
-def _parse_bbb(html: str, category: str) -> list[dict]:
-    # BBB is a Next.js app — try __NEXT_DATA__ JSON first (most reliable)
-    next_data_match = re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL
-    )
-    if next_data_match:
-        try:
-            data = json.loads(next_data_match.group(1))
-            businesses = (
-                data.get("props", {})
-                    .get("pageProps", {})
-                    .get("searchResults", {})
-                    .get("businesses", [])
-            )
-            if businesses:
-                return [_normalize_bbb_json(b, category) for b in businesses if b]
-        except (json.JSONDecodeError, AttributeError, KeyError):
-            pass
+def _parse_bbb_text(text: str, category: str) -> list[dict]:
+    """Parse BBB search results from rendered page text.
 
-    # Fallback: HTML parsing for any layout changes
-    soup = BeautifulSoup(html, "lxml")
-    listings = soup.select(
-        "div.result-details, "
-        "div[class*='SearchResults__result'], "
-        "div[class*='ResultCard']"
-    )
+    BBB results follow a pattern like:
+      Business Name
+      BBB Rating: A+
+      Phone: (555) 123-4567
+      City, ST 12345
+    """
     businesses = []
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
 
-    for listing in listings:
-        name_tag = listing.select_one(
-            "a[class*='business-name'], h3 a, .result-title a, a[class*='BusinessName']"
-        )
-        if not name_tag:
-            continue
-        name = name_tag.get_text(strip=True)
+    i = 0
+    while i < len(lines):
+        # BBB results often have "BBB Rating:" nearby
+        # Look for phone numbers and work backwards to find the business name
+        line = lines[i]
 
-        phone = None
-        phone_tag = listing.select_one("a[href^='tel:'], [class*='phone'], [class*='Phone']")
-        if phone_tag:
-            href = phone_tag.get("href", "")
-            phone = href[4:].strip() if href.startswith("tel:") else phone_tag.get_text(strip=True)
+        # Detect a BBB rating line — the business name is typically 1-3 lines above
+        if "BBB Rating:" in line or "Not BBB Accredited" in line:
+            name = None
+            phone = None
+            city = ""
+            state = ""
 
-        website = None
-        for a in listing.select("a[href^='http']"):
-            href = a.get("href", "")
-            if "bbb.org" not in href:
-                website = href
-                break
+            # Look backwards for the business name
+            # Pattern: Name is 2-3 lines before "BBB Rating:", category line is in between
+            # Skip: category-like lines, junk, icons, short strings
+            _SKIP = {"Phone:", "Website", "Get a Quote", "Directions", "Ad",
+                      "advertisement:", "Why are there ads on BBB.org?", "�"}
+            candidates = []
+            for j in range(i - 1, max(i - 5, -1), -1):
+                candidate = lines[j]
+                if (len(candidate) > 3
+                    and not candidate.startswith("BBB")
+                    and not _PHONE_RE.search(candidate)
+                    and "Rating" not in candidate
+                    and "Accredited" not in candidate
+                    and candidate not in _SKIP
+                    and not re.match(r"^\d+\.\s*$", candidate)
+                    and not re.search(r"[A-Z]{2}\s+\d{5}", candidate)  # skip address lines
+                    and not re.match(r"^\d+\s+\w", candidate)):  # skip "123 Main St"
+                    candidates.append(candidate)
 
-        addr_tag = listing.select_one("address, [class*='address'], [class*='Address']")
-        address_text = addr_tag.get_text(separator=" ", strip=True) if addr_tag else ""
-        city, state = _parse_city_state(address_text)
+            # The actual business name is usually the one furthest back (before category)
+            if len(candidates) >= 2:
+                name = candidates[-1]  # furthest back = business name
+            elif candidates:
+                name = candidates[0]
 
-        businesses.append({
-            "business_name": name,
-            "phone": phone,
-            "website_url": website,
-            "city": city,
-            "state": state,
-            "category": category,
-            "source": "bbb",
-            "raw_data": {"address": address_text},
-        })
+            # Look forward for phone and address
+            for j in range(i + 1, min(i + 10, len(lines))):
+                ln = lines[j]
+
+                if not phone:
+                    phone_match = _PHONE_RE.search(ln)
+                    if phone_match:
+                        phone = phone_match.group(1)
+
+                # Address with state + zip
+                state_match = re.search(r",\s*([A-Z]{2})\s+\d{5}", ln)
+                if state_match and len(ln) < 80:
+                    state = state_match.group(1)
+                    parts = ln.split(",")
+                    if len(parts) >= 2:
+                        city = parts[-2].strip()
+
+                # Stop at next BBB Rating
+                if "BBB Rating:" in ln and j > i + 1:
+                    break
+
+            if name and len(name) < 80:
+                businesses.append({
+                    "business_name": name,
+                    "phone": phone,
+                    "website_url": None,
+                    "city": city,
+                    "state": state,
+                    "category": category,
+                    "source": "bbb",
+                    "raw_data": {},
+                })
+
+        i += 1
 
     return businesses
-
-
-def _normalize_bbb_json(b: dict, category: str) -> dict:
-    """Normalize a BBB JSON record from __NEXT_DATA__."""
-    address = b.get("primaryAddress") or b.get("address") or {}
-    city = address.get("city") or address.get("addressLocality") or ""
-    state = address.get("stateProvince") or address.get("addressRegion") or ""
-
-    phone = b.get("phone") or b.get("primaryPhone") or b.get("telephone")
-    website = b.get("website") or b.get("websiteURL") or b.get("url")
-    if website and not website.startswith("http"):
-        website = None
-
-    return {
-        "business_name": b.get("businessName") or b.get("name") or "",
-        "phone": phone,
-        "website_url": website,
-        "city": city,
-        "state": state,
-        "category": category,
-        "source": "bbb",
-        "raw_data": b,
-    }
-
-
-def _parse_city_state(address: str) -> tuple[str, str]:
-    match = re.search(r",\s*([^,]+),\s*([A-Z]{2})\s*\d*$", address)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return "", ""

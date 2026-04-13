@@ -1,91 +1,99 @@
-import asyncio
-import random
+"""Superpages scraper — uses headless Chrome to bypass bot detection."""
+
 import re
-import httpx
-from bs4 import BeautifulSoup
+import logging
+from urllib.parse import quote_plus
 
-SP_BASE = "https://www.superpages.com/search"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+logger = logging.getLogger(__name__)
+
+_PHONE_RE = re.compile(r"(\d{3}[\-\.]\d{3}[\-\.]\d{4})")
 
 
-async def scrape_superpages(category: str, location: str, pages: int = 3) -> list[dict]:
-    """Scrape Superpages for businesses in a given category and location."""
+async def scrape_superpages(category: str, location: str, pages: int = 1) -> list[dict]:
+    """Scrape Superpages using headless Chrome."""
+    from agent.browser import scrape_page
+
+    query = quote_plus(category)
+    loc = quote_plus(location)
+    url = f"https://www.superpages.com/search?search_terms={query}&geo_location_terms={loc}"
+
     results = []
-    async with httpx.AsyncClient(headers=HEADERS, timeout=15.0, follow_redirects=True) as client:
-        for page in range(1, pages + 1):
-            try:
-                resp = await client.get(
-                    SP_BASE,
-                    params={
-                        "search_terms": category,
-                        "geo_location_terms": location,
-                        "page": page,
-                    },
-                )
-                if resp.status_code != 200:
-                    break
+    try:
+        data = await scrape_page(url)
+        if not data.get("success"):
+            return []
 
-                businesses = _parse_superpages(resp.text, category)
-                if not businesses:
-                    break
-
-                results.extend(businesses)
-
-                if page < pages:
-                    await asyncio.sleep(random.uniform(1.5, 2.5))
-
-            except httpx.RequestError:
-                break
+        text = data.get("text", "")
+        results = _parse_sp_text(text, category)
+        logger.info(f"SP: found {len(results)} businesses for {category} in {location}")
+    except Exception as e:
+        logger.error(f"SP scrape failed: {e}")
 
     return results
 
 
-def _parse_superpages(html: str, category: str) -> list[dict]:
-    soup = BeautifulSoup(html, "lxml")
-    listings = soup.select("div.result, li.listing-result")
+def _parse_sp_text(text: str, category: str) -> list[dict]:
+    """Parse Superpages from rendered text.
+
+    Format is numbered listings:
+      1. Business Name
+      555-123-4567
+      Visit Website
+      Directions
+      Category tags
+      123 Main St, City, ST 12345
+    """
     businesses = []
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
 
-    for listing in listings:
-        name_tag = listing.select_one(".business-name a, h3.listing-heading a")
-        if not name_tag:
+    i = 0
+    while i < len(lines):
+        numbered = re.match(r"^(\d+)\.\s+(.+)$", lines[i])
+        if not numbered:
+            i += 1
             continue
-        name = name_tag.get_text(strip=True)
 
-        phone_tag = listing.select_one(".phones.phone.primary, .phone-number")
-        phone = phone_tag.get_text(strip=True) if phone_tag else None
+        name = numbered.group(2).strip()
+        phone = None
+        city = ""
+        state = ""
+        address = ""
 
-        website_tag = listing.select_one("a.track-visit-website")
-        website = website_tag.get("href") if website_tag else None
-        if website and website.startswith("/"):
-            website = None  # relative = internal SP link, not a real website
+        for j in range(i + 1, min(i + 15, len(lines))):
+            ln = lines[j]
 
-        addr_tag = listing.select_one(".adr, .listing-address")
-        address_text = addr_tag.get_text(separator=" ", strip=True) if addr_tag else ""
-        city, state = _parse_city_state(address_text)
+            # Next numbered entry — stop
+            if re.match(r"^\d+\.\s+", ln) and j > i + 1:
+                break
 
-        businesses.append({
-            "business_name": name,
-            "phone": phone,
-            "website_url": website,
-            "city": city,
-            "state": state,
-            "category": category,
-            "source": "superpages",
-            "raw_data": {"address": address_text},
-        })
+            # Phone (format: 555-123-4567)
+            if not phone:
+                phone_match = _PHONE_RE.search(ln)
+                if phone_match and len(ln) < 20:
+                    phone = phone_match.group(1)
+                    continue
+
+            # Address with state + zip
+            state_match = re.search(r",\s*([A-Z]{2})\s+\d{5}", ln)
+            if state_match and len(ln) < 100:
+                address = ln
+                state = state_match.group(1)
+                parts = ln.split(",")
+                if len(parts) >= 2:
+                    city = parts[-2].strip()
+
+        if name and (phone or city):
+            businesses.append({
+                "business_name": name,
+                "phone": phone,
+                "website_url": None,
+                "city": city,
+                "state": state,
+                "category": category,
+                "source": "superpages",
+                "raw_data": {"address": address},
+            })
+
+        i += 1
 
     return businesses
-
-
-def _parse_city_state(address: str) -> tuple[str, str]:
-    match = re.search(r",\s*([^,]+),\s*([A-Z]{2})\s*\d*$", address)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return "", ""

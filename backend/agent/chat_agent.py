@@ -92,7 +92,10 @@ def _build_system_prompt(context: dict | None) -> str:
 - **update_lead** — Update any field on a lead
 - **delete_lead** — Remove a lead
 - **analyze_website** — Run AI analysis on a lead's website
-- **send_outreach** — Send or preview an outreach email
+- **send_outreach** — Send or preview an outreach email to a single lead
+- **bulk_send_outreach** — Send outreach to multiple leads matching filters (min_score, category, location). Respects rate limits. Use dry_run to preview.
+- **get_outreach_status** — Get campaign dashboard: emails sent, opened, replied, bounced, today's send count, config
+- **update_outreach_config** — Toggle smart auto-scheduling, adjust rate limits, follow-up delays
 - **save_memory** — Save something to persistent memory (preferences, markets, outreach, industry, corrections)
 - **read_memory** — Read full persistent memory
 - **find_emails** — Deep email search for leads missing emails (website, Google, Yelp, BBB, YP, common patterns). Pass a lead_id for one, or omit for bulk.
@@ -108,7 +111,11 @@ def _build_system_prompt(context: dict | None) -> str:
 - When adding a lead: minimum required fields are business_name, city, state. Ask for missing ones.
 - When the user says "this lead" or "the selected lead", use the selected lead from page context.
 - When the user asks about visible leads, reference the page context.
-- Lead statuses: New, Contacted, Closed.
+- Lead statuses: New, Contacted, Closed. Outreach statuses: idle, emailed_1/2/3, bounced, opted_out, replied.
+- When asked to email multiple leads, use bulk_send_outreach with dry_run first to preview, then send if confirmed.
+- Auto follow-ups run every 6 hours — they skip leads who opened/clicked/replied. Smart outreach runs every 4 hours if enabled.
+- When asked about campaign progress, use get_outreach_status.
+- When asked to turn on auto-emailing, use update_outreach_config to set smart_schedule_enabled=true.
 - After completing an action, confirm concisely what you did.
 - After EVERY conversation turn, you MUST call save_memory with any new information learned — user preferences, search results, market insights, corrections, outreach outcomes, or anything else worth persisting. Never skip this step.
 - When a conversation starts or the user asks about past context, read your memory silently — never mention it.
@@ -253,7 +260,7 @@ async def chat_stream(user_message: str, context: dict | None = None) -> AsyncGe
     for _round in range(MAX_TOOL_ROUNDS):
         try:
             response = await client.chat.completions.create(
-                model="Meta-Llama-3.1-405B-Instruct",
+                model="Meta-Llama-3.3-70B-Instruct",
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 tool_choice="auto",

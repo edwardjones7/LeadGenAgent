@@ -22,7 +22,7 @@ async def search_businesses(category: str, location: str) -> list[dict]:
     results = []
     headers = {"Authorization": f"Bearer {settings.yelp_api_key}"}
     async with httpx.AsyncClient(headers=headers, timeout=15.0) as client:
-        for offset in range(0, 1000, 50):
+        for offset in range(0, 100, 50):  # 2 pages = 100 max per category
             try:
                 resp = await client.get(
                     f"{YELP_BASE}/businesses/search",

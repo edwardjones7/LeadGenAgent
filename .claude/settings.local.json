@@ -72,7 +72,30 @@
       "Bash(git stash:*)",
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force --index-filter \"git rm --cached --ignore-unmatch backend/.env\" --prune-empty -- --all)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(ls -la /c/Users/edjjo/Desktop/LeadGen/backend/.env*)",
+      "Bash(ls -la /c/Users/edjjo/Desktop/LeadGen/.env*)",
+      "Bash(taskkill //F //PID 32752)",
+      "Bash(taskkill //F //PID 21536)",
+      "Bash(taskkill //F //PID 35828)",
+      "Bash(taskkill //F //PID 36360)",
+      "Bash(taskkill //F //IM python3.exe)",
+      "Bash(ls:*)",
+      "Bash(python3 -m py_compile backend/agent/tool_executor.py backend/agent/chat_agent.py backend/app/routers/chat.py backend/app/main.py)",
+      "Bash(python3 -c \"from app.services import lead_processor; print\\('lead_processor imported successfully'\\)\")",
+      "Bash(python3 -m py_compile app/services/lead_processor.py)",
+      "Bash(python3 -m py_compile app/services/lead_processor.py app/services/email_extractor.py app/services/evaluator.py app/services/deep_researcher.py app/agent/chat_agent.py app/agent/tool_executor.py)",
+      "Bash(python3 -m py_compile app/services/lead_processor.py app/services/email_extractor.py app/services/evaluator.py app/services/deep_researcher.py agent/chat_agent.py agent/tool_executor.py)",
+      "Bash(python3)",
+      "Bash(timeout 15 head -30)",
+      "Bash(taskkill //F //IM \"uvicorn*\")",
+      "Bash(taskkill //F //IM \"node*\")",
+      "Bash(pkill -f uvicorn)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(npx next:*)",
+      "Bash(rm -rf /c/Users/edjjo/AppData/Local/npm-cache/_npx)",
+      "Bash(rm -rf /tmp/*.log)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

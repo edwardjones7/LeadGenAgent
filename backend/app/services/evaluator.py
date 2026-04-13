@@ -16,7 +16,7 @@ HEADERS = {
     )
 }
 
-HTML_SIZE_LIMIT = 50 * 1024  # 50 KB — captures all <head> + first-screen content
+HTML_SIZE_LIMIT = 200 * 1024  # 200 KB
 
 
 async def evaluate(url: str, client: httpx.AsyncClient) -> dict:
@@ -110,19 +110,28 @@ async def evaluate(url: str, client: httpx.AsyncClient) -> dict:
                 penalty += 1
 
     # Old platform
+    platform_detected = None
     generator = soup.find("meta", attrs={"name": "generator"})
     if generator:
         gen_content = (generator.get("content") or "").lower()
         for platform in OLD_PLATFORMS:
             if platform in gen_content:
-                reasons.append(f"Built on outdated platform ({generator.get('content')})")
+                platform_detected = generator.get("content")
+                reasons.append(f"Built on outdated platform ({platform_detected})")
                 penalty += 1
                 break
 
-    return _finalize(penalty, reasons, html_text)
+    return _finalize(
+        penalty, reasons, html_text,
+        has_ssl=url.startswith("https://"),
+        load_time=round(load_time, 2),
+        has_viewport=viewport is not None,
+        has_meta_desc=bool(meta_desc and (meta_desc.get("content") or "").strip()),
+        platform_detected=platform_detected,
+    )
 
 
-def _finalize(penalty: int, reasons: list[str], html: str = "") -> dict:
+def _finalize(penalty: int, reasons: list[str], html: str = "", **signals) -> dict:
     score = max(1, min(10, penalty))
     reason_text = "; ".join(reasons) if reasons else "Website appears acceptable"
-    return {"score": score, "score_reason": reason_text, "homepage_html": html}
+    return {"score": score, "score_reason": reason_text, "homepage_html": html, **signals}

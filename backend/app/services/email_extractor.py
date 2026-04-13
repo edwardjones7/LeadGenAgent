@@ -10,10 +10,10 @@ EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 EXCLUDE_DOMAINS = {
     "example.com", "yourdomain.com", "sentry.io", "wixpress.com",
     "wordpress.com", "squarespace.com", "godaddy.com", "domain.com",
-    "email.com", "youremail.com", "placeholder.com", "gmail.com",
-    "yahoo.com", "hotmail.com", "outlook.com", "aol.com",
+    "email.com", "youremail.com", "placeholder.com",
     "googleusercontent.com", "gstatic.com", "w3.org",
 }
+_CONSUMER_DOMAINS = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
 CONTACT_PATHS = [
     "/contact", "/contact-us", "/contact_us",
     "/about", "/about-us", "/about_us",
@@ -30,7 +30,7 @@ HEADERS = {
     )
 }
 
-HTML_SIZE_LIMIT = 50 * 1024  # 50 KB
+HTML_SIZE_LIMIT = 200 * 1024  # 200 KB
 
 
 async def extract_email(url: str, homepage_html: str, client: httpx.AsyncClient) -> str | None:
@@ -96,12 +96,17 @@ async def find_email_for_lead(business_name: str, city: str, state: str,
             except httpx.RequestError:
                 pass
 
-        # Strategy 2: Google search for the business email
+        # Strategy 2: Scrape Facebook business page for email
+        email = await _facebook_page_email(business_name, city, state, client)
+        if email:
+            return {"email": email, "source": "facebook"}
+
+        # Strategy 3: Google search for the business email
         email = await _google_search_email(business_name, city, state, client)
         if email:
             return {"email": email, "source": "google"}
 
-        # Strategy 3: Search Yelp listing page for email
+        # Strategy 4: Search Yelp listing page for email
         email = await _yelp_listing_email(business_name, city, state, client)
         if email:
             return {"email": email, "source": "yelp_listing"}
@@ -151,16 +156,56 @@ async def bulk_find_emails(leads: list[dict]) -> list[dict]:
     return [r for r in results if isinstance(r, dict)]
 
 
+async def _facebook_page_email(name: str, city: str, state: str,
+                                client: httpx.AsyncClient) -> str | None:
+    """Find a business's Facebook page via DuckDuckGo, then scrape it with
+    headless Chrome (Facebook blocks plain HTTP requests)."""
+    from urllib.parse import unquote
+
+    query = quote_plus(f"{name} {city} {state} facebook")
+    search_url = f"https://html.duckduckgo.com/html/?q={query}"
+    try:
+        resp = await client.get(search_url)
+        if resp.status_code != 200:
+            return None
+
+        # Find Facebook page URL from DDG results
+        fb_url = None
+        soup = BeautifulSoup(resp.text[:100_000], "html.parser")
+        for a_tag in soup.find_all("a", class_="result__a", href=True):
+            href = a_tag["href"]
+            if "uddg=" in href:
+                href = unquote(href.split("uddg=")[1].split("&")[0])
+            if "facebook.com" in href and "/login" not in href and "/help" not in href:
+                fb_url = href
+                break
+
+        if not fb_url:
+            return None
+
+        # Use headless Chrome to scrape Facebook (it blocks httpx)
+        try:
+            from agent.browser import scrape_page
+            result = await scrape_page(fb_url)
+            if result.get("success") and result.get("emails"):
+                emails = _filter_emails(result["emails"])
+                if emails:
+                    return _pick_best_generic(emails)
+        except Exception:
+            pass
+
+    except (httpx.RequestError, Exception):
+        pass
+    return None
+
+
 async def _google_search_email(name: str, city: str, state: str,
                                 client: httpx.AsyncClient) -> str | None:
-    """Search Google for the business and look for email addresses in results."""
-    query = quote_plus(f'"{name}" "{city}" "{state}" email contact')
-    url = f"https://www.google.com/search?q={query}&num=5"
+    """Search DuckDuckGo for the business email addresses."""
+    query = quote_plus(f"{name} {city} {state} email contact")
+    url = f"https://html.duckduckgo.com/html/?q={query}"
     try:
-        resp = await client.get(url, headers={
-            **HEADERS,
-            "Accept": "text/html,application/xhtml+xml",
-        })
+        resp = await client.get(url)
         if resp.status_code != 200:
             return None
         html = resp.text[:HTML_SIZE_LIMIT]
@@ -272,15 +317,12 @@ async def _try_common_patterns(domain: str, client: httpx.AsyncClient) -> str | 
     common = [f"info@{domain}", f"contact@{domain}", f"hello@{domain}",
               f"office@{domain}", f"admin@{domain}", f"sales@{domain}"]
 
-    # Quick Google check for these emails
+    # Quick DuckDuckGo check for these emails
     for email in common[:3]:  # only try top 3 to be polite
         query = quote_plus(f'"{email}"')
-        url = f"https://www.google.com/search?q={query}"
+        url = f"https://html.duckduckgo.com/html/?q={query}"
         try:
-            resp = await client.get(url, headers={
-                **HEADERS,
-                "Accept": "text/html,application/xhtml+xml",
-            })
+            resp = await client.get(url)
             if resp.status_code == 200 and email in resp.text.lower():
                 return email
         except httpx.RequestError:
@@ -332,20 +374,39 @@ def _extract_from_footer(html: str, base_domain: str) -> str | None:
     if not html:
         return None
     soup = BeautifulSoup(html, "html.parser")
-    footer = soup.find("footer") or soup.find(id="footer") or soup.find(class_="footer")
-    if not footer:
-        return None
-    footer_text = footer.get_text()
-    emails = EMAIL_REGEX.findall(footer_text)
-    # Also check mailto in footer
-    for a_tag in footer.find_all("a", href=True):
-        if a_tag["href"].startswith("mailto:"):
-            email = a_tag["href"][7:].split("?")[0].strip().lower()
-            if email:
-                emails.append(email)
-    filtered = _filter_emails(emails)
-    if filtered:
-        return _pick_best(filtered, base_domain)
+    footer = (
+        soup.find("footer")
+        or soup.find(id="footer")
+        or soup.find(class_="footer")
+        or soup.find(id="site-footer")
+        or soup.find(class_="site-footer")
+        or soup.find(class_="footer-wrapper")
+        or soup.find(class_="footer-container")
+        or soup.find(class_="bottom-bar")
+        or soup.find(attrs={"role": "contentinfo"})
+    )
+    if footer:
+        footer_text = footer.get_text()
+        emails = EMAIL_REGEX.findall(footer_text)
+        for a_tag in footer.find_all("a", href=True):
+            if a_tag["href"].startswith("mailto:"):
+                email = a_tag["href"][7:].split("?")[0].strip().lower()
+                if email:
+                    emails.append(email)
+        filtered = _filter_emails(emails)
+        if filtered:
+            return _pick_best(filtered, base_domain)
+
+    # Last resort: scan bottom 20% of page text for emails
+    all_text = soup.get_text()
+    if len(all_text) > 200:
+        cutoff = int(len(all_text) * 0.8)
+        tail_text = all_text[cutoff:]
+        emails = EMAIL_REGEX.findall(tail_text)
+        filtered = _filter_emails(emails)
+        if filtered:
+            return _pick_best(filtered, base_domain)
+
     return None
 
 
@@ -396,6 +457,11 @@ def _pick_best(emails: list[str], base_domain: str) -> str:
         for email in pool:
             if email.startswith(prefix + "@"):
                 return email
+
+    # Deprioritize consumer email domains when alternatives exist
+    non_consumer = [e for e in pool if e.split("@")[-1] not in _CONSUMER_DOMAINS]
+    if non_consumer:
+        return non_consumer[0]
 
     return pool[0]
 

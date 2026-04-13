@@ -91,6 +91,64 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 
 CREATE INDEX IF NOT EXISTS chat_messages_created_at_idx ON chat_messages (created_at DESC);
 
+-- Deep research enrichment columns
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS contact_name       TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS contact_title      TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS additional_phones  JSONB DEFAULT '[]';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS additional_emails  JSONB DEFAULT '[]';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS social_links       JSONB DEFAULT '{}';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS business_hours     TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS rating             NUMERIC(2,1);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS review_count       INTEGER;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS years_in_business  INTEGER;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS bbb_accredited     BOOLEAN;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS yelp_categories    JSONB DEFAULT '[]';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS address            TEXT;
+
+-- Search queue for background processing
+CREATE TABLE IF NOT EXISTS search_queue (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  location      TEXT NOT NULL,
+  categories    JSONB NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',
+  progress      JSONB DEFAULT '{}',
+  result        JSONB,
+  error         TEXT,
+  created_at    TIMESTAMPTZ DEFAULT now(),
+  started_at    TIMESTAMPTZ,
+  finished_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_queue_status  ON search_queue(status);
+CREATE INDEX IF NOT EXISTS idx_search_queue_created ON search_queue(created_at DESC);
+
+-- Email automation columns
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS replied    BOOLEAN DEFAULT false;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS opted_out  BOOLEAN DEFAULT false;
+
+ALTER TABLE email_outreach ADD COLUMN IF NOT EXISTS opened_at  TIMESTAMPTZ;
+ALTER TABLE email_outreach ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMPTZ;
+
+-- Outreach automation config (single-row settings table)
+CREATE TABLE IF NOT EXISTS outreach_config (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  max_per_hour           INTEGER NOT NULL DEFAULT 50,
+  max_per_day            INTEGER NOT NULL DEFAULT 200,
+  followup_1_days        INTEGER NOT NULL DEFAULT 3,
+  followup_2_days        INTEGER NOT NULL DEFAULT 5,
+  followup_3_days        INTEGER NOT NULL DEFAULT 7,
+  smart_schedule_enabled BOOLEAN NOT NULL DEFAULT false,
+  min_score_auto         INTEGER NOT NULL DEFAULT 7,
+  created_at             TIMESTAMPTZ DEFAULT now(),
+  updated_at             TIMESTAMPTZ DEFAULT now()
+);
+
+-- Seed default config row if empty
+INSERT INTO outreach_config (id)
+SELECT gen_random_uuid()
+WHERE NOT EXISTS (SELECT 1 FROM outreach_config);
+
 -- Auto-update updated_at on leads
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

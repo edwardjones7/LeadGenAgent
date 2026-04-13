@@ -31,8 +31,15 @@ def _worker():
     """Long-running worker thread that processes Playwright tasks."""
     global _pw, _browser, _context, _page
 
-    # Windows needs its own event loop for subprocess support
+    # Playwright's sync API internally calls asyncio.new_event_loop(), which
+    # honors the *process-wide* event loop policy. Uvicorn sets
+    # WindowsSelectorEventLoopPolicy on Windows, and a SelectorEventLoop
+    # raises NotImplementedError on subprocess_exec — which Playwright needs
+    # to launch the Node driver. Flip the policy to Proactor before starting.
     if platform.system() == "Windows":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        asyncio.set_event_loop(asyncio.new_event_loop())
+    else:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
     while True:
@@ -174,7 +181,52 @@ def _close_sync():
     return {"success": True, "message": "Browser closed."}
 
 
+def _scrape_page_sync(url, timeout_ms=15000):
+    """Navigate to a URL and return the full page text + emails + external links.
+
+    Used by the pipeline (not the chat agent) to scrape pages that block
+    simple HTTP requests (e.g. Facebook business pages).
+    """
+    import re
+    page = _ensure_browser()
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        # Wait a moment for JS-rendered content
+        page.wait_for_timeout(2000)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    text = page.inner_text("body", timeout=5000)
+    html = page.content()
+
+    # Extract emails from visible text + HTML source
+    email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+    emails = list(set(email_re.findall(text) + email_re.findall(html)))
+
+    # Extract external links (for finding website URLs from social pages)
+    links = page.evaluate("""
+        () => {
+            const anchors = document.querySelectorAll('a[href]');
+            return Array.from(anchors).map(a => a.href)
+                .filter(h => h.startsWith('http'));
+        }
+    """)
+
+    return {
+        "success": True,
+        "url": page.url,
+        "title": page.title(),
+        "text": text[:20000],
+        "emails": emails,
+        "links": links,
+    }
+
+
 # --- Async public API ---
+
+async def scrape_page(url: str) -> dict:
+    """Scrape a page using headless Chrome — returns text, emails, and links."""
+    return await _call(_scrape_page_sync, url)
 
 async def navigate(url: str) -> dict:
     return await _call(_navigate_sync, url)

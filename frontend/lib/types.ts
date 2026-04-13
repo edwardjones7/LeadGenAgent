@@ -12,9 +12,17 @@ export type OutreachStatus =
 
 export interface AiAnalysis {
   summary: string;
+  business_overview?: string;
+  opportunity?: string;
   problems: { category: string; description: string }[];
   severity: "low" | "medium" | "high";
   personalization_hooks: string[];
+  gap_analysis?: {
+    missing_pages?: string[];
+    missing_trust_signals?: string[];
+    cta_quality?: string;
+    contact_accessibility?: string;
+  } | null;
 }
 
 export interface EmailRecord {
@@ -32,12 +40,37 @@ export interface EmailRecord {
 
 export interface WebsiteSpec {
   business_name: string;
+  project_title?: string;
+  overview?: string;
+  objectives?: string[];
+  target_audience?: { primary?: string[]; secondary?: string[] };
+  user_personas?: { name: string; bio?: string; needs?: string[] }[];
+  core_features?: { section: string; purpose?: string; components?: string[] }[];
+  design?: {
+    style_direction?: string;
+    color_palette?: Record<string, string>;
+    typography?: string;
+    ui_notes?: string[];
+  };
+  ux_requirements?: string[];
+  technical_requirements?: {
+    recommended_platform?: string;
+    integrations?: string[];
+    hosting?: string;
+  };
+  success_metrics?: string[];
+  future_enhancements?: string[];
+  sitemap?: string[];
+  copy_tone?: string[];
+  key_differentiator?: string;
+
+  // Legacy / homepage-level fields
   tagline: string;
   hero_headline: string;
   hero_subheadline: string;
   sections: { name: string; headline: string; body_copy: string; cta_text: string | null }[];
-  color_palette: { primary: string; secondary: string; accent: string };
-  design_direction: string;
+  color_palette?: Record<string, string>;
+  design_direction?: string;
   seo_title: string;
   meta_description: string;
   suggested_domain: string;
@@ -90,6 +123,19 @@ export interface ChatMessage {
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
   created_at?: string;
+}
+
+export interface QueueEntry {
+  id: string;
+  location: string;
+  categories: string[];
+  status: "pending" | "running" | "complete" | "failed" | "cancelled";
+  progress: { current: number; total: number } | null;
+  result: SearchResponse | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
 }
 
 export interface PageContext {

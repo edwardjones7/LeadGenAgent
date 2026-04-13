@@ -56,13 +56,10 @@ def _get_lead(lead_id: str) -> dict:
 async def analyze_lead(lead_id: str):
     """Run AI website analysis and store result in leads.ai_analysis."""
     from app.config import settings
-    if not settings.groq_api_key:
-        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
+    if not (settings.groq_api_key or settings.sambanova_api_key):
+        raise HTTPException(status_code=503, detail="No AI API key configured (GROQ or SAMBANOVA)")
 
     lead = _get_lead(lead_id)
-
-    if not lead.get("website_url") and not lead.get("email"):
-        raise HTTPException(status_code=400, detail="Lead has no website URL or email — nothing to analyze")
 
     # Re-fetch homepage HTML (not stored in DB)
     html = ""
@@ -74,6 +71,9 @@ async def analyze_lead(lead_id: str):
         website_url=lead.get("website_url") or "",
         homepage_html=html,
         score_reason=lead.get("score_reason") or "",
+        category=lead.get("category"),
+        city=lead.get("city"),
+        state=lead.get("state"),
     )
 
     get_db().table("leads").update({
@@ -87,98 +87,27 @@ async def analyze_lead(lead_id: str):
 @router.post("/{lead_id}/send")
 async def send_outreach(lead_id: str, body: OutreachSendRequest = OutreachSendRequest()):
     """Full pipeline: analyze (if needed) → generate email → send → log."""
+    from app.services.outreach_engine import send_outreach_to_lead
+
     lead = _get_lead(lead_id)
 
     if not lead.get("email"):
         raise HTTPException(status_code=400, detail="Lead has no email address")
 
-    # Analyze if not yet done
-    ai_analysis = lead.get("ai_analysis")
-    if not ai_analysis:
-        html = ""
-        if lead.get("website_url"):
-            html = await _fetch_homepage(lead["website_url"])
-        ai_analysis = await analyze_website(
-            business_name=lead["business_name"],
-            website_url=lead.get("website_url") or "",
-            homepage_html=html,
-            score_reason=lead.get("score_reason") or "",
-        )
-        get_db().table("leads").update({"ai_analysis": ai_analysis}).eq("id", lead_id).execute()
+    result = await send_outreach_to_lead(lead, dry_run=body.dry_run)
 
-    # Generate email
-    follow_up_count = lead.get("follow_up_count") or 0
-    if follow_up_count == 0:
-        email_content = await generate_initial_email(
-            business_name=lead["business_name"],
-            owner_name=None,
-            ai_analysis=ai_analysis,
-        )
-    else:
-        email_content = await generate_followup_email(
-            business_name=lead["business_name"],
-            follow_up_number=follow_up_count,
-            ai_analysis=ai_analysis,
-        )
-
-    if body.dry_run:
-        return {
-            "lead_id": lead_id,
-            "email_id": None,
-            "resend_id": None,
-            "status": "dry_run",
-            "subject": email_content["subject"],
-            "body": email_content["body"],
-            "dry_run": True,
-        }
-
-    # Send
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: send_email(lead["email"], email_content["subject"], email_content["body"]),
-    )
-
-    now = datetime.now(timezone.utc).isoformat()
-    sequence_step = follow_up_count
-
-    # Log in email_outreach table
-    row = get_db().table("email_outreach").insert({
-        "lead_id": lead_id,
-        "sequence_step": sequence_step,
-        "subject": email_content["subject"],
-        "body": email_content["body"],
-        "sent_at": now if result["status"] == "sent" else None,
-        "resend_id": result["id"],
-        "status": result["status"],
-        "error_message": result["error"],
-    }).execute()
-
-    email_id = row.data[0]["id"] if row.data else None
-
-    # Update lead only on successful send
-    if result["status"] == "sent":
-        new_outreach_status = f"emailed_{sequence_step + 1}"
-        lead_updates: dict = {
-            "outreach_status": new_outreach_status,
-            "last_emailed_at": now,
-            "follow_up_count": follow_up_count,
-        }
-        # Advance CRM status from New → Contacted
-        if lead.get("status") == "New":
-            lead_updates["status"] = "Contacted"
-        get_db().table("leads").update(lead_updates).eq("id", lead_id).execute()
-    else:
-        new_outreach_status = lead.get("outreach_status", "idle")
+    if not result.get("success") and not result.get("dry_run"):
+        if result.get("error") in ("no_email", "bounced", "opted_out", "replied", "max_followups_reached"):
+            raise HTTPException(status_code=400, detail=result["error"])
 
     return {
         "lead_id": lead_id,
-        "email_id": email_id,
-        "resend_id": result["id"],
-        "status": result["status"],
-        "subject": email_content["subject"],
-        "body": email_content["body"],
-        "dry_run": False,
+        "email_id": result.get("email_id"),
+        "resend_id": result.get("resend_id"),
+        "status": result.get("status", "failed"),
+        "subject": result.get("subject"),
+        "body": result.get("body"),
+        "dry_run": result.get("dry_run", False),
         "error": result.get("error"),
     }
 
@@ -200,10 +129,10 @@ async def get_email_history(lead_id: str):
 
 @router.post("/{lead_id}/generate-site")
 async def generate_site(lead_id: str):
-    """Generate a complete website spec for a lead."""
+    """Generate a complete website PRD for a lead."""
     from app.config import settings
-    if not settings.groq_api_key:
-        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
+    if not (settings.groq_api_key or settings.sambanova_api_key):
+        raise HTTPException(status_code=503, detail="No AI API key configured (GROQ or SAMBANOVA)")
 
     lead = _get_lead(lead_id)
 
@@ -232,22 +161,89 @@ async def resend_webhook(payload: dict):
     status_map = {
         "email.opened": "opened",
         "email.bounced": "bounced",
-        "email.clicked": "opened",
+        "email.clicked": "clicked",
         "email.delivered": "sent",
     }
     new_status = status_map.get(event_type)
     if not new_status:
         return {"ok": True}
 
+    db = get_db()
+
     # Find the email_outreach row
-    result = get_db().table("email_outreach").select("id, lead_id").eq("resend_id", resend_id).execute()
+    result = db.table("email_outreach").select("id, lead_id").eq("resend_id", resend_id).execute()
     if not result.data:
         return {"ok": True}
 
     row = result.data[0]
-    get_db().table("email_outreach").update({"status": new_status}).eq("id", row["id"]).execute()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Update email status + timestamps
+    update_data: dict = {"status": new_status}
+    if event_type == "email.opened":
+        update_data["opened_at"] = now
+    elif event_type == "email.clicked":
+        update_data["clicked_at"] = now
+
+    db.table("email_outreach").update(update_data).eq("id", row["id"]).execute()
 
     if event_type == "email.bounced":
-        get_db().table("leads").update({"outreach_status": "bounced"}).eq("id", row["lead_id"]).execute()
+        db.table("leads").update({"outreach_status": "bounced"}).eq("id", row["lead_id"]).execute()
 
+    return {"ok": True}
+
+
+@router.post("/webhooks/resend/inbound")
+async def resend_inbound_webhook(payload: dict):
+    """Handle inbound emails (replies) forwarded by Resend."""
+    from_email = payload.get("from", "") or payload.get("sender", "")
+    subject = payload.get("subject", "")
+    text_body = payload.get("text", "") or payload.get("html", "")
+
+    if not from_email:
+        return {"ok": True}
+
+    # Normalize: Resend may send from as "Name <email>" or just "email"
+    if "<" in from_email and ">" in from_email:
+        from_email = from_email.split("<")[1].split(">")[0]
+    from_email = from_email.strip().lower()
+
+    db = get_db()
+
+    # Look up lead by email
+    result = db.table("leads").select("id, business_name").eq("email", from_email).execute()
+    if not result.data:
+        # Try case-insensitive match
+        result = db.table("leads").select("id, business_name").ilike("email", from_email).execute()
+    if not result.data:
+        logger.info(f"Inbound email from {from_email} — no matching lead found")
+        return {"ok": True}
+
+    lead = result.data[0]
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Update lead as replied
+    db.table("leads").update({
+        "replied": True,
+        "replied_at": now,
+        "outreach_status": "replied",
+    }).eq("id", lead["id"]).execute()
+
+    # Log the reply in email_outreach (sequence_step -1 = inbound)
+    db.table("email_outreach").insert({
+        "lead_id": lead["id"],
+        "sequence_step": -1,
+        "subject": subject[:500],
+        "body": text_body[:5000],
+        "sent_at": now,
+        "status": "reply_received",
+    }).execute()
+
+    # Insert system message into chat so Alex can surface it
+    db.table("chat_messages").insert({
+        "role": "system",
+        "content": f"Reply received from {lead['business_name']} ({from_email}): \"{subject}\". Lead status updated to replied.",
+    }).execute()
+
+    logger.info(f"Reply detected from {lead['business_name']} ({from_email})")
     return {"ok": True}

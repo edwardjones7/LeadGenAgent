@@ -74,6 +74,8 @@ def export_leads(
     )
 
 
+
+
 @router.get("/{lead_id}")
 def get_lead(lead_id: str):
     db = get_db()
@@ -103,6 +105,10 @@ def delete_lead(lead_id: str):
     return {"ok": True}
 
 
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
 @router.post("/find-emails/stream")
 async def find_emails_stream(limit: int = Query(20)):
     """Stream email-finding progress as SSE events."""
@@ -121,19 +127,20 @@ async def find_emails_stream(limit: int = Query(20)):
         leads = result.data or []
 
         if not leads:
-            yield f"data: {json.dumps({'type': 'log', 'message': 'All leads already have emails!'})}\n\n"
-            yield f"data: {json.dumps({'type': 'result', 'found': 0, 'total': 0})}\n\n"
+            yield _sse({"type": "log", "message": "All leads already have emails!"})
+            yield _sse({"type": "result", "found": 0, "total": 0})
             return
 
-        yield f"data: {json.dumps({'type': 'log', 'message': f'Found {len(leads)} leads without emails. Starting search...'})}\n\n"
+        yield _sse({"type": "log", "message": f"Found {len(leads)} leads without emails. Starting search..."})
 
         found_count = 0
         for i, lead in enumerate(leads):
-            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': len(leads), 'message': f'Searching for {lead[\"business_name\"]}...'})}\n\n"
+            biz_name = lead["business_name"]
+            yield _sse({"type": "progress", "current": i + 1, "total": len(leads), "message": f"Searching for {biz_name}..."})
 
             try:
                 result = await find_email_for_lead(
-                    business_name=lead["business_name"],
+                    business_name=biz_name,
                     city=lead["city"],
                     state=lead["state"],
                     website_url=lead.get("website_url"),
@@ -142,13 +149,13 @@ async def find_emails_stream(limit: int = Query(20)):
                 if result["email"]:
                     db.table("leads").update({"email": result["email"]}).eq("id", lead["id"]).execute()
                     found_count += 1
-                    yield f"data: {json.dumps({'type': 'found', 'business': lead['business_name'], 'email': result['email'], 'source': result['source']})}\n\n"
+                    yield _sse({"type": "found", "business": biz_name, "email": result["email"], "source": result["source"]})
                 else:
-                    yield f"data: {json.dumps({'type': 'log', 'message': f'No email found for {lead[\"business_name\"]}'})}\n\n"
+                    yield _sse({"type": "log", "message": f"No email found for {biz_name}"})
             except Exception as e:
-                yield f"data: {json.dumps({'type': 'log', 'message': f'Error searching {lead[\"business_name\"]}: {str(e)[:100]}'})}\n\n"
+                yield _sse({"type": "log", "message": f"Error searching {biz_name}: {str(e)[:100]}"})
 
-        yield f"data: {json.dumps({'type': 'result', 'found': found_count, 'total': len(leads), 'message': f'Done — found {found_count}/{len(leads)} emails'})}\n\n"
+        yield _sse({"type": "result", "found": found_count, "total": len(leads), "message": f"Done — found {found_count}/{len(leads)} emails"})
 
     return StreamingResponse(
         event_generator(),

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import leads, search, chat
 from app.routers import scheduler as scheduler_router
 from app.routers import outreach as outreach_router
-from app.scheduler import scheduler_instance, load_schedules_from_db, register_followup_job
+from app.scheduler import scheduler_instance, load_schedules_from_db, register_followup_job, register_smart_outreach_job
+from app.services.search_queue import queue_worker
 
 
 @asynccontextmanager
@@ -13,7 +15,10 @@ async def lifespan(app: FastAPI):
     scheduler_instance.start()
     await load_schedules_from_db()
     register_followup_job()
+    register_smart_outreach_job()
+    worker_task = asyncio.create_task(queue_worker())
     yield
+    worker_task.cancel()
     scheduler_instance.shutdown(wait=False)
 
 
